@@ -1,3 +1,6 @@
+# Jose Sanchez 30.958.324
+# Luis Peña 30.512.332
+
 import json
 from datetime import datetime
 

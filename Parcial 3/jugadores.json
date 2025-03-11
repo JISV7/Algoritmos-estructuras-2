@@ -1,0 +1,112 @@
+[
+    {
+        "nombre": "Carlos Pérez",
+        "victorias": 15,
+        "derrotas": 5,
+        "pais": "Argentina",
+        "fecha_registro": "2023-02-10",
+        "tipo_jugador": "intermedio",
+        "puntaje": 1200,
+        "historial_puntajes": [1000, 1050, 1100, 1150, 1200],
+        "ranking": 12
+    },
+    {
+        "nombre": "Ana Gómez",
+        "victorias": 20,
+        "derrotas": 3,
+        "pais": "España",
+        "fecha_registro": "2022-11-25",
+        "tipo_jugador": "experto",
+        "puntaje": 1500,
+        "historial_puntajes": [1200, 1300, 1400, 1450, 1500],
+        "ranking": 3
+    },
+    {
+        "nombre": "Lucas Silva",
+        "victorias": 8,
+        "derrotas": 10,
+        "pais": "Brasil",
+        "fecha_registro": "2024-01-05",
+        "tipo_jugador": "novato",
+        "puntaje": 900,
+        "historial_puntajes": [700, 750, 800, 850, 900],
+        "ranking": 25
+    },
+    {
+        "nombre": "María López",
+        "victorias": 12,
+        "derrotas": 8,
+        "pais": "México",
+        "fecha_registro": "2023-05-15",
+        "tipo_jugador": "intermedio",
+        "puntaje": 1100,
+        "historial_puntajes": [900, 950, 1000, 1050, 1100],
+        "ranking": 18
+    },
+    {
+        "nombre": "Juan Torres",
+        "victorias": 25,
+        "derrotas": 2,
+        "pais": "Argentina",
+        "fecha_registro": "2021-09-12",
+        "tipo_jugador": "experto",
+        "puntaje": 1700,
+        "historial_puntajes": [1400, 1500, 1600, 1650, 1700],
+        "ranking": 1
+    },
+    {
+        "nombre": "Sofía Ramírez",
+        "victorias": 18,
+        "derrotas": 7,
+        "pais": "España",
+        "fecha_registro": "2022-07-30",
+        "tipo_jugador": "experto",
+        "puntaje": 1400,
+        "historial_puntajes": [1100, 1200, 1300, 1350, 1400],
+        "ranking": 7
+    },
+    {
+        "nombre": "Diego Fernández",
+        "victorias": 10,
+        "derrotas": 12,
+        "pais": "Chile",
+        "fecha_registro": "2023-08-19",
+        "tipo_jugador": "intermedio",
+        "puntaje": 1000,
+        "historial_puntajes": [800, 850, 900, 950, 1000],
+        "ranking": 22
+    },
+    {
+        "nombre": "Luisa Herrera",
+        "victorias": 30,
+        "derrotas": 5,
+        "pais": "México",
+        "fecha_registro": "2020-06-14",
+        "tipo_jugador": "experto",
+        "puntaje": 1600,
+        "historial_puntajes": [1300, 1400, 1500, 1550, 1600],
+        "ranking": 2
+    },
+    {
+        "nombre": "Luis Pena",
+        "victorias": 4000,
+        "derrotas": 11,
+        "pais": "Venezuela",
+        "fecha_registro": "2026-04-7",
+        "tipo_jugador": "experto",
+        "puntaje": 1000,
+        "historial_puntajes": [1000, 1050, 1100, 1150, 1200],
+        "ranking": 11
+    },
+    {
+        "nombre": "Jose Sanchez",
+        "victorias": 12,
+        "derrotas": 11,
+        "pais": "Peru",
+        "fecha_registro": "1800-01-17",
+        "tipo_jugador": "experto",
+        "puntaje": 1000,
+        "historial_puntajes": [1000, 1050, 1100, 1150, 1200],
+        "ranking": 1000000
+    }
+]
