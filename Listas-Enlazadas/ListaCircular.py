@@ -98,8 +98,8 @@ if __name__ == "__main__":
     juego = JuegoMesa()
 
     # Añadir jugadores
-    juego.agregar_jugador("Alice")
-    juego.agregar_jugador("Bob")
+    juego.agregar_jugador("Alicia")
+    juego.agregar_jugador("Roberto")
     juego.agregar_jugador("Carlos")
     juego.agregar_jugador("Diana")
 
