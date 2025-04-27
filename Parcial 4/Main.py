@@ -11,11 +11,13 @@ from PullRequest import PullRequest
 class ConsoleApp:
     def __init__(self):
         self.commands = {}
-        self.staging = StackManager()  # Archivos preparados como pila
+        self.staging = StackManager(self)  # Archivos preparados como pila
         self.commits = DoublyLinkedList()  # Historial de commits como Dlinked list
         self.current_commit = None  # Commit actual (HEAD)
         self.initialized = False
         self.current_branch = "main"
+        self.repo_path = None  # Ruta absoluta del repositorio actual
+        self._reset_state()  # Nueva función para limpiar datos
         self.register_commands()
         self.commit_file = "commits.json"
         self._load_commits()
@@ -23,11 +25,19 @@ class ConsoleApp:
         self.pr_file = "pull_requests.json"
         self._load_pull_requests()  # Cargar PullRequests al iniciar
 
+    def _reset_state(self):
+        """Reinicia todas las estructuras de datos al cambiar de repo"""
+        self.commits = DoublyLinkedList()
+        self.pr_queue = Queue()
+        self.staging.clear()
+        self.current_commit = None
+
     def _load_commits(self):
         """Carga los commits desde el archivo JSON al iniciar"""
-        if os.path.exists(self.commit_file):
+        if self.repo_path and os.path.exists(os.path.join(self.repo_path, self.commit_file)):
             try:
-                with open(self.commit_file, 'r') as f:
+                commit_file_path = os.path.join(self.repo_path, self.commit_file)
+                with open(commit_file_path, 'r') as f:
                     commits_data = json.load(f)
                     for commit_data in commits_data:
                         new_commit = Commit.from_dict(commit_data)
@@ -38,39 +48,44 @@ class ConsoleApp:
                 print(f"Error cargando commits: {str(e)}")
 
     def _save_commits(self):
-        """Guarda todos los commits en el archivo JSON"""
-        commits_data = []
-        current_node = self.commits.head
-        while current_node:
-            commits_data.append(current_node.data.to_dict())
-            current_node = current_node.next
-        
-        try:
-            with open(self.commit_file, 'w') as f:
-                json.dump(commits_data, f, indent=2)
-        except Exception as e:
-            print(f"Error guardando commits: {str(e)}")
+        """Guarda commits en repo_path/commits.json"""
+        if self.repo_path:
+            commits_data = []
+            current_node = self.commits.head
+            while current_node:
+                commits_data.append(current_node.data.to_dict())
+                current_node = current_node.next
+            commit_path = os.path.join(self.repo_path, self.commit_file)
+            try:
+                with open(commit_path, 'w') as f:
+                    json.dump(commits_data, f, indent=2)
+            except Exception as e:
+                print(f"Error guardando commits: {str(e)}")
 
     def _load_pull_requests(self):
-        """Carga los PRs desde el archivo JSON"""
-        if os.path.exists(self.pr_file):
-            try:
-                with open(self.pr_file, 'r') as f:
-                    prs_data = json.load(f)
-                    for pr_data in prs_data:
-                        pr = PullRequest.from_dict(pr_data)
-                        self.pr_queue.enqueue(pr)
-            except Exception as e:
-                print(f"Error cargando PRs: {str(e)}")
+        """Carga PRs desde repo_path/pull_requests.json"""
+        if self.repo_path:
+            pr_path = os.path.join(self.repo_path, self.pr_file)
+            if os.path.exists(pr_path):
+                try:
+                    with open(pr_path, 'r') as f:
+                        prs_data = json.load(f)
+                        for pr_data in prs_data:
+                            pr = PullRequest.from_dict(pr_data)
+                            self.pr_queue.enqueue(pr)
+                except Exception as e:
+                    print(f"Error cargando PRs: {str(e)}")
 
     def _save_pull_requests(self):
-        """Guarda los PRs en el archivo JSON"""
-        prs_data = [pr.to_dict() for pr in self.pr_queue.get_all()]
-        try:
-            with open(self.pr_file, 'w') as f:
-                json.dump(prs_data, f, indent=2)
-        except Exception as e:
-            print(f"Error guardando PRs: {str(e)}")
+        """Guarda PRs en repo_path/pull_requests.json"""
+        if self.repo_path:
+            prs_data = [pr.to_dict() for pr in self.pr_queue.get_all()]
+            pr_path = os.path.join(self.repo_path, self.pr_file)
+            try:
+                with open(pr_path, 'w') as f:
+                    json.dump(prs_data, f, indent=2)
+            except Exception as e:
+                print(f"Error guardando PRs: {str(e)}")
 
     def get_committed_files(self):
         """Obtiene todos los archivos registrados en cualquier commit"""
@@ -94,7 +109,10 @@ class ConsoleApp:
 
     def run(self):
         while True:
-            user_input = input(">")
+            user_input = input(">").strip()
+            if not user_input:
+                continue
+            
             parts = user_input.split()
             command_name = parts[0]
             
@@ -164,32 +182,48 @@ class Commit:
 class GitInit(Command):
     def __init__(self, app):
         self.app = app
-        if os.path.exists(".git"):
-            self.app.initialized = True
-            return
 
     def execute(self, args):
-        if len(args) != 1:
-            raise Exception("Uso: init")
+        if len(args) != 2:
+            raise Exception("Uso: init <nombre_repositorio>")
         
-        # Verificar si .git ya existe
-        if os.path.exists(".git"):
-            self.app.initialized = True
-            print("Repositorio ya inicializado")
+        repo_name = args[1]
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        new_repo_path = os.path.join(script_dir, repo_name)
+        
+        # Si es el mismo repo, no hacer nada
+        if self.app.repo_path == new_repo_path:
+            print(f"Ya estás en el repositorio {repo_name}")
             return
             
-        # Crear carpeta .git y limpiar commits.json
-        os.makedirs(".git", exist_ok=True)
+        # Reiniciar estado antes de cargar nuevo repo
+        self.app._reset_state()
+        self.app.repo_path = new_repo_path
+        
+        # Cargar datos existentes
+        self.app._load_commits()
+        self.app._load_pull_requests()
+        
+        print(f"Cambiado a repositorio: {repo_name}")
+        
+        # Crear repositorio si no existe
+        if os.path.exists(self.app.repo_path):
+            if os.path.isdir(self.app.repo_path) and os.path.exists(os.path.join(self.app.repo_path, ".git")):
+                print(f"Repositorio {repo_name} ya está inicializado")
+                self.app.initialized = True
+                return
+            else:
+                raise Exception(f"'{repo_name}' existe pero no es un repositorio")
+        else:
+            os.makedirs(self.app.repo_path)
+        
+        # Crear .git y archivos internos
+        git_dir = os.path.join(self.app.repo_path, ".git")
+        os.makedirs(git_dir, exist_ok=True)
+        
+        # Inicializar estado
         self.app.initialized = True
-        
-        # Borrar commits.json si existe
-        if os.path.exists("commits.json"):
-            try:
-                os.remove("commits.json")
-            except Exception as e:
-                print(f"Error borrando commits.json: {str(e)}")
-        
-        print("Repositorio inicializado")
+        print(f"Repositorio '{repo_name}' creado en: {self.app.repo_path}")
 
 class GitAdd(Command):
     def __init__(self, app):
@@ -203,22 +237,22 @@ class GitAdd(Command):
         
         target = args[1]
         if target == ".":
-            # Solo archivos no trackeados o modificados
-            staged_files = self.app.staging.get_staged_files()
-            for filename in os.listdir("."):
-                if os.path.isfile(filename):
+            repo_dir = self.app.repo_path if self.app.repo_path else "."
+            for filename in os.listdir(repo_dir):
+                file_path = os.path.join(repo_dir, filename)
+                if os.path.isfile(file_path):
                     current_hash = self.app.staging._generate_hash(filename)
                     in_stack = any(item["filename"] == filename for item in self.app.staging.stack)
-                    
                     if not in_stack or (in_stack and current_hash != next(item["hash"] for item in self.app.staging.stack if item["filename"] == filename)):
                         self.app.staging.push(filename, estado='A' if not in_stack else 'M')
                         print(f"Archivo {filename} agregado a staging")
         else:
-            if not os.path.isfile(target):
+            file_path = os.path.join(self.app.repo_path, target) if self.app.repo_path else target
+            if not os.path.isfile(file_path):
                 raise Exception(f"Archivo {target} no existe")
             self.app.staging.push(target, estado='A')
             print(f"Archivo {target} agregado al staging")
-
+            
 class GitStatus(Command):
     def __init__(self, app):
         self.app = app
@@ -337,6 +371,11 @@ class GitPR(Command):
             "help": self.help
         }
 
+    def _check_repo_initialized(self):
+        """Valida si hay un repositorio activo"""
+        if not self.app.initialized or not self.app.repo_path:
+            raise Exception("Primero debes seleccionar un repositorio con 'init <nombre>'")
+        
     def execute(self, args):
         if len(args) < 2:
             raise Exception("Uso: pr <subcomando> [opciones] O pr help")
@@ -347,6 +386,7 @@ class GitPR(Command):
             raise Exception(f"Subcomando '{subcmd}' no reconocido")
 
     def create(self, args):
+        self._check_repo_initialized()
         if len(args) != 4:
             raise Exception("Uso: pr create <rama_origen> <rama_destino>")
         source = args[2]
@@ -361,11 +401,13 @@ class GitPR(Command):
         print(f"PR #{pr_id} creado para fusionar {source} -> {target}")
 
     def status(self, args):
+        self._check_repo_initialized()
         print("Estado de los Pull Requests:")
         for pr in self.app.pr_queue.get_all():
             print(f"ID: {pr.id} | Estado: {pr.status} | Origen: {pr.source} -> Destino: {pr.target}")
 
     def next(self, args):
+        self._check_repo_initialized()
         """Mueve el siguiente PR a revisión sin eliminarlo de la cola"""
         if self.app.pr_queue.is_empty():
             print("No hay PRs pendientes en la cola")
@@ -377,6 +419,7 @@ class GitPR(Command):
         self.app._save_pull_requests()
 
     def approve(self, args):
+        self._check_repo_initialized()
         if len(args) != 3:
             raise Exception("Uso: pr approve <id_pr>")
         pr_id = int(args[2])
@@ -410,6 +453,7 @@ class GitPR(Command):
         print(f"PR #{pr_id} fusionado en {pr.target}. Commit: {merge_commit.id}")
         
     def reject(self, args):
+        self._check_repo_initialized()
         if len(args) != 3:
             raise Exception("Uso: pr reject <id_pr>")  # Error corregido
         pr_id = int(args[2])
@@ -422,6 +466,7 @@ class GitPR(Command):
             raise Exception(f"PR #{pr_id} no encontrado")
         
     def cancel(self, args):
+        self._check_repo_initialized()
         if len(args) != 3:
             raise Exception("Uso: pr cancel <id_pr>")
         pr_id = int(args[2])
@@ -434,11 +479,13 @@ class GitPR(Command):
             raise Exception(f"PR #{pr_id} no encontrado")
         
     def list(self, args):
+        self._check_repo_initialized()
         print("Lista de Pull Requests:")
         for pr in self.app.pr_queue.get_all():
             print(f"ID: {pr.id} | Estado: {pr.status} | {pr.source} -> {pr.target} | Autor: {pr.author} | Date: {pr.created_at}")
 
     def clear(self, args):
+        self._check_repo_initialized()
         self.app.pr_queue.clear()
         self.app._save_pull_requests()
         print("Todos los PRs pendientes eliminados")
