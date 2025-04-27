@@ -7,6 +7,10 @@ from DoubleList import DoublyLinkedList
 from Stack import StackManager
 from Queue import Queue
 from PullRequest import PullRequest
+from BranchTree import BranchTree
+from ContributorsBST import ContributorsBST
+from GitBTree import GitBTree
+from RoleAVL import RoleAVL
     
 class ConsoleApp:
     def __init__(self):
@@ -24,6 +28,11 @@ class ConsoleApp:
         self.pr_queue = Queue()  # Cola de Pull Requests
         self.pr_file = "pull_requests.json"
         self._load_pull_requests()  # Cargar PullRequests al iniciar
+        self.branch_tree = BranchTree()
+        self.contributors = ContributorsBST()
+        self.git_objects = GitBTree(t=50)
+        self.roles = RoleAVL()
+        self._init_default_roles()  # Inicializar roles predeterminados
 
     def _reset_state(self):
         """Reinicia todas las estructuras de datos al cambiar de repo"""
@@ -31,6 +40,26 @@ class ConsoleApp:
         self.pr_queue = Queue()
         self.staging.clear()
         self.current_commit = None
+
+    def _init_default_roles(self):
+        """Inicializa los roles predeterminados con sus permisos"""
+        # Admin: Acceso total
+        self.roles.roles.add_role("Admin", ["push", "pull", "merge", "branch"])
+        # Maintainer: push y merge en cualquier rama
+        self.roles.roles.add_role("Maintainer", ["push", "pull", "merge"])
+        # Developer: push en ramas específicas (solo push y pull)
+        self.roles.roles.add_role("Developer", ["push", "pull"])
+        # Guest: solo pull
+        self.roles.roles.add_role("Guest", ["pull"])
+
+    def _load_all_data(self):
+        if self.repo_path:
+            self.branch_tree.load(self.repo_path)
+            self.contributors.load(self.repo_path)
+
+    def _save_all_data(self):
+        self.branch_tree.save(self.repo_path)
+        self.contributors.save(self.repo_path)
 
     def _load_commits(self):
         """Carga los commits desde el archivo JSON al iniciar"""
@@ -106,6 +135,9 @@ class ConsoleApp:
         self.commands["pr"] = GitPR(self)
         self.commands["help"] = GitHelp()
         self.commands["exit"] = ExitCommand()
+        self.commands["branch"] = GitBranch(self)
+        self.commands["contributors"] = GitContributors(self)
+        self.commands["role"] = GitRole(self)
 
     def run(self):
         while True:
@@ -309,6 +341,11 @@ class GitCommit(Command):
         # Agregar el commit si no es redundante
         self.app.commits.insert_at_end(new_commit)
         self.app.current_commit = self.app.commits.tail
+        # Insertar los hashes SHA-1 de los archivos en el B-Tree de Git
+        for filename in staged_files:
+            file_hash = self.app.staging._generate_hash(filename)
+            if file_hash:
+                self.app.git_objects.insert(file_hash)
         self.app.staging.clear()
         self.app._save_commits()  # Nueva línea
         print(f"Commit creado: {new_commit.id}")
@@ -340,8 +377,15 @@ class GitCheckout(Command):
 
     def execute(self, args):
         if len(args) != 2:
-            raise Exception("Uso: checkout <commit_id>")
+            raise Exception("Uso: checkout <nombre_rama|commit_id>")
         target_id = args[1]
+
+        branch = self.app.branch_tree.find_branch_inorder(self.app.branch_tree.root, args[1])
+        if branch:
+            self.app.branch_tree.current_branch = branch
+            print(f"Cambiado a rama: {branch.name}")
+            return
+        
         current_node = self.app.commits.head
         while current_node:
             commit = current_node.data
@@ -501,6 +545,84 @@ class GitPR(Command):
         print("-list")
         print("-clear")
 
+class GitRole(Command):
+    def __init__(self, app):
+        self.app = app
+        self.subcommands = {
+            "add": self.add,
+            "update": self.update,
+            "remove": self.remove,
+            "show": self.show,
+            "check": self.check,
+            "list": self.list_users
+        }
+
+    def execute(self, args):
+        if len(args) < 2:
+            print("Uso: role <add|update|remove|show|check|list> ...")
+            return
+        subcmd = args[1]
+        if subcmd in self.subcommands:
+            self.subcommands[subcmd](args)
+        else:
+            print(f"Subcomando '{subcmd}' no reconocido")
+
+    def add(self, args):
+        if len(args) < 5:
+            print("Uso: role add <email> <role> <permissions_coma>")
+            return
+        email = args[2]
+        role = args[3]
+        permisos = args[4].split(",")
+        self.app.roles.insert(email, role, permisos)
+        print(f"Usuario {email} agregado con rol {role} y permisos {permisos}")
+
+    def update(self, args):
+        if len(args) < 5:
+            print("Uso: role update <email> <new_role> <new_permissions_coma>")
+            return
+        email = args[2]
+        new_role = args[3]
+        new_permisos = args[4].split(",")
+        if self.app.roles.update(email, new_role, new_permisos):
+            print(f"Usuario {email} actualizado a rol {new_role} con permisos {new_permisos}")
+        else:
+            print("Usuario no encontrado")
+
+    def remove(self, args):
+        if len(args) < 3:
+            print("Uso: role remove <email>")
+            return
+        email = args[2]
+        self.app.roles.remove(email)
+        print(f"Usuario {email} eliminado")
+
+    def show(self, args):
+        if len(args) < 3:
+            print("Uso: role show <email>")
+            return
+        email = args[2]
+        print(self.app.roles.show(email))
+
+    def check(self, args):
+        if len(args) < 4:
+            print("Uso: role check <email> <action>")
+            return
+        email = args[2]
+        action = args[3]
+        if self.app.roles.check_permission(email, action):
+            print(f"{email} tiene permiso para {action}")
+        else:
+            print(f"{email} NO tiene permiso para {action}")
+
+    def list_users(self, args):
+        users = self.app.roles.list_users()
+        if not users:
+            print("No hay usuarios registrados")
+            return
+        for u in users:
+            print(f"Email: {u['email']}, Rol: {u['role']}, Permisos: {u['permisos']}")
+
 class GitHelp(Command):
     def execute(self, args):
         print("Comandos:")
@@ -517,6 +639,100 @@ class ExitCommand(Command):
     def execute(self, args):
         print("Saliendo...")
         sys.exit(0)
+
+class GitBranch(Command):
+    def __init__(self, app):
+        self.app = app
+        
+    def execute(self, args):
+        if not self.app.initialized:
+            raise Exception("Primero inicializa un repositorio con 'init'")
+            
+        if len(args) < 2:
+            raise Exception("Uso: branch [opción] <nombre>")
+            
+        if args[1] == "--list":
+            self._list_branches()
+        elif args[1] == "-d":
+            self._delete_branch(args[2])
+        elif args[1] == "merge":
+            self._merge_branches(args[2], args[3])
+        else:
+            self._create_branch(args[1])
+    
+    def _create_branch(self, branch_name):
+        current_branch = self.app.branch_tree.current_branch
+        if self.app.branch_tree.add_branch(current_branch.name, branch_name):
+            print(f"Rama '{branch_name}' creada bajo '{current_branch.name}'")
+            self.app.branch_tree.save(self.app.repo_path)
+        else:
+            raise Exception("Error creando rama")
+    
+    def _delete_branch(self, branch_name):
+        if self.app.branch_tree.delete_branch(branch_name):
+            print(f"Rama '{branch_name}' eliminada")
+            self.app.branch_tree.save(self.app.repo_path)
+        else:
+            raise Exception("No se puede eliminar la rama. ¿Está fusionada?")
+    
+    def _list_branches(self):
+        branches = self.app.branch_tree.list_branches_preorder(self.app.branch_tree.root)
+        print("\n".join(branches))
+    
+    def _merge_branches(self, source, target):
+        if self.app.branch_tree.merge(source, target):
+            print(f"Merge exitoso de '{source}' en '{target}'")
+            self.app._save_commits()
+            self.app.branch_tree.save(self.app.repo_path)
+        else:
+            raise Exception("Error en el merge. ¿Ramas válidas?")
+        
+class GitContributors(Command):
+    def __init__(self, app):
+        self.app = app
+    
+    def execute(self, args):
+        if not self.app.initialized:
+            raise Exception("Primero inicializa un repositorio con 'init'")
+        
+        if len(args) < 2:
+            raise Exception("Uso: contributors [subcomando]")
+        
+        subcmd = args[1]
+        if subcmd == "--list":
+            self._list_contributors()
+        elif subcmd == "add":
+            self._add_contributor(args[2], args[3])
+        elif subcmd == "remove":
+            self._remove_contributor(args[2])
+        elif subcmd == "find":
+            self._find_contributor(args[2])
+        else:
+            raise Exception("Subcomando no reconocido")
+    
+    def _list_contributors(self):
+        contributors = self.app.contributors.list_inorder()
+        print("\n".join(contributors) if contributors else "No hay colaboradores")
+    
+    def _add_contributor(self, name, role):
+        self.app.contributors.insert(name, role)
+        self.app.contributors.save(self.app.repo_path)
+        print(f"Colaborador '{name}' agregado como {role}")
+    
+    def _remove_contributor(self, name):
+        if self.app.contributors.find(name):
+            self.app.contributors.delete(name)
+            self.app.contributors.save(self.app.repo_path)
+            print(f"Colaborador '{name}' eliminado")
+        else:
+            raise Exception("Colaborador no encontrado")
+    
+    def _find_contributor(self, name):
+        contributor = self.app.contributors.find(name)
+        if contributor:
+            print(f"Nombre: {contributor.name} | Rol: {contributor.role}")
+        else:
+            print("Colaborador no encontrado")
 
 if __name__ == "__main__":
     app = ConsoleApp()
