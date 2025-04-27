@@ -633,6 +633,10 @@ class GitHelp(Command):
         print("-checkout")
         print("-status")
         print("-pr")
+        print("-branch")
+        print("-contributors")
+        print("-role")
+        print("-help")
         print("-exit")
 
 class ExitCommand(Command):

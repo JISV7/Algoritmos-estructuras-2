@@ -29,9 +29,63 @@ class BranchTree:
                 return result
         return None
     
-    def merge(self, source, target):
-        # Implementación con difflib
-        pass
+    def merge(self, source, target, repo_path=None):
+        """
+        Muestra los cambios individuales por archivo entre las ramas source y target usando difflib.
+        Para cada archivo, muestra el delta línea por línea.
+        """
+        import os
+        import difflib
+        
+        source_node = self._find_node_preorder(self.root, source)
+        target_node = self._find_node_preorder(self.root, target)
+        if not source_node or not target_node:
+            print(f"No se encontró alguna de las ramas: {source}, {target}")
+            return False
+        if not source_node.commit or not target_node.commit:
+            print("Alguna de las ramas no tiene commit asociado.")
+            return False
+        
+        # Archivos en cada commit
+        source_files = set(source_node.commit.staged_files)
+        target_files = set(target_node.commit.staged_files)
+        all_files = source_files | target_files
+        
+        print(f"\n--- Comparando ramas '{source}' y '{target}' ---\n")
+        for filename in sorted(all_files):
+            print(f"Archivo: {filename}")
+            source_path = os.path.join(repo_path, filename) if repo_path else filename
+            target_path = os.path.join(repo_path, filename) if repo_path else filename
+            
+            # Leer contenido de cada archivo en cada rama (si existe)
+            source_content = []
+            target_content = []
+            if filename in source_files and os.path.isfile(source_path):
+                with open(source_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    source_content = f.readlines()
+            if filename in target_files and os.path.isfile(target_path):
+                with open(target_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    target_content = f.readlines()
+            
+            if filename in source_files and filename in target_files:
+                # Mostrar delta
+                diff = difflib.unified_diff(
+                    target_content, source_content,
+                    fromfile=f'{target}:{filename}',
+                    tofile=f'{source}:{filename}',
+                    lineterm=''
+                )
+                diff_lines = list(diff)
+                if diff_lines:
+                    print("\n".join(diff_lines))
+                else:
+                    print("(Sin diferencias)")
+            elif filename in source_files:
+                print("(Archivo nuevo en la rama source)")
+            elif filename in target_files:
+                print("(Archivo eliminado en la rama source)")
+            print("-"*40)
+        return True
 
     def delete_branch(self, branch_name):
         """Elimina una rama por nombre (no permite borrar main)"""
