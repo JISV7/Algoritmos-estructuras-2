@@ -1,6 +1,7 @@
 # 1. Módulo de Gestión de Branches (Árbol N-ario)
 import json
-from difflib import Differ
+import os
+import difflib
 
 class BranchNode:
     def __init__(self, name, commit=None):
@@ -29,14 +30,11 @@ class BranchTree:
                 return result
         return None
     
-    def merge(self, source, target, repo_path=None):
+    def merge(self, source, target, repo_path=None, commits_list=None):
         """
         Muestra los cambios individuales por archivo entre las ramas source y target usando difflib.
-        Para cada archivo, muestra el delta línea por línea.
-        """
-        import os
-        import difflib
-        
+        Además, crea un commit de merge en la rama destino con los archivos combinados.
+        """        
         source_node = self._find_node_preorder(self.root, source)
         target_node = self._find_node_preorder(self.root, target)
         if not source_node or not target_node:
@@ -85,6 +83,21 @@ class BranchTree:
             elif filename in target_files:
                 print("(Archivo eliminado en la rama source)")
             print("-"*40)
+        # --- Lógica de commit de merge ---
+        if commits_list is not None:
+            # Unir archivos de ambos commits (sin duplicados)
+            merged_files = list(all_files)
+            merge_message = f"Merge branch '{source}' into '{target}'"
+            from Main import Commit  # Importar la clase Commit
+            parent_id = target_node.commit.id if hasattr(target_node.commit, 'id') else None
+            merge_commit = Commit(
+                message=merge_message,
+                author_email="system@merge",
+                staged_files=merged_files,
+                parent_id=parent_id
+            )
+            commits_list.insert_at_end(merge_commit)
+            target_node.commit = merge_commit
         return True
 
     def delete_branch(self, branch_name):

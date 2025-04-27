@@ -21,6 +21,8 @@ class ConsoleApp:
         self.initialized = False
         self.current_branch = "main"
         self.repo_path = None  # Ruta absoluta del repositorio actual
+        self.user_name = "root"
+        self.user_email = "root@gmail.com"
         self._reset_state()  # Nueva función para limpiar datos
         self.register_commands()
         self.commit_file = "commits.json"
@@ -51,6 +53,8 @@ class ConsoleApp:
         self.roles.roles.add_role("Developer", ["push", "pull"])
         # Guest: solo pull
         self.roles.roles.add_role("Guest", ["pull"])
+        # Root: acceso total (por si acaso)
+        self.roles.insert("root@gmail.com", "Admin", ["push", "pull", "merge", "branch", "admin"])
 
     def _load_all_data(self):
         if self.repo_path:
@@ -117,13 +121,54 @@ class ConsoleApp:
                 print(f"Error guardando PRs: {str(e)}")
 
     def get_committed_files(self):
-        """Obtiene todos los archivos registrados en cualquier commit"""
+        """Obtiene todos los archivos registrados en la rama actual (no global)"""
         committed_files = set()
-        current_node = self.commits.head
-        while current_node:
-            committed_files.update(current_node.data.staged_files)
-            current_node = current_node.next
+        # Buscar la rama actual
+        current_branch = self.branch_tree.current_branch
+        if current_branch and current_branch.commit:
+            # Recorrer hacia atrás desde el último commit de la rama
+            commit_id = current_branch.commit.id
+            current_node = self.commits.tail
+            while current_node:
+                commit = current_node.data
+                if commit.id == commit_id:
+                    # Recorrer la historia de la rama
+                    while current_node:
+                        commit = current_node.data
+                        committed_files.update(commit.staged_files)
+                        if not commit.parent_id:
+                            break
+                        # Buscar el commit padre
+                        parent_node = self.commits.head
+                        while parent_node:
+                            if parent_node.data.id == commit.parent_id:
+                                current_node = parent_node
+                                break
+                            parent_node = parent_node.next
+                        else:
+                            break
+                    break
+                current_node = current_node.prev
         return committed_files
+
+    def _has_permission(self, action, branch_name=None):
+        # Root user tiene acceso total
+        if self.user_email == "root@gmail.com":
+            return True
+        # Admin tiene acceso total
+        if self.roles.check_permission(self.user_email, "admin"):
+            return True
+        # Maintainer: push y merge en cualquier rama
+        if action in ["push", "merge", "branch"] and self.roles.check_permission(self.user_email, action):
+            return True
+        # Developer: push solo en ramas específicas (por ahora, permitimos en cualquier rama si tiene push)
+        if action == "push" and self.roles.check_permission(self.user_email, "push"):
+            # Si quieres restringir a ramas específicas, aquí puedes validar branch_name
+            return True
+        # Guest: solo pull
+        if action == "pull" and self.roles.check_permission(self.user_email, "pull"):
+            return True
+        return False
 
     def register_commands(self): # Cada comando interactua con ConsoleApp
         self.commands["init"] = GitInit(self)
@@ -138,6 +183,7 @@ class ConsoleApp:
         self.commands["branch"] = GitBranch(self)
         self.commands["contributors"] = GitContributors(self)
         self.commands["role"] = GitRole(self)
+        self.commands["config"] = GitConfig(self)
 
     def run(self):
         while True:
@@ -318,43 +364,37 @@ class GitCommit(Command):
     def execute(self, args):
         if not self.app.initialized:
             raise Exception("Error: Repositorio no inicializado. Ejecuta 'init' primero")
+        if not self.app._has_permission("push", self.app.branch_tree.current_branch.name):
+            raise Exception("Permiso denegado: No tienes permiso para hacer commit (push) en este repositorio.")
         if "-m" not in args or len(args) < 3:
             raise Exception('Uso: commit -m "mensaje del commit"')
-        
         staged_files = self.app.staging.get_staged_files()
         if not staged_files:
             raise Exception("Error: No hay archivos en staging. Usa 'add' primero")
-        
         message = args[2].strip('"')
-        author_email = "usuario@test.com"
+        author_email = self.app.user_email
         parent_id = self.app.commits.tail.data.id if self.app.commits.tail else None
         new_commit = Commit(message, author_email, staged_files, parent_id)
-
-        # Verificar si ya existe un commit redundante
+        if self.app.branch_tree.current_branch:
+            new_commit.branch = self.app.branch_tree.current_branch.name
         current_node = self.app.commits.head
         while current_node:
             existing_commit = current_node.data
             if new_commit.is_redundant(existing_commit):
                 raise Exception("Commit redundante: Mismos archivos que un commit anterior.")
             current_node = current_node.next
-
-        # Agregar el commit si no es redundante
         self.app.commits.insert_at_end(new_commit)
         self.app.current_commit = self.app.commits.tail
-        # Insertar los hashes SHA-1 de los archivos en el B-Tree de Git
         for filename in staged_files:
             file_hash = self.app.staging._generate_hash(filename)
             if file_hash:
                 self.app.git_objects.insert(file_hash)
         self.app.staging.clear()
-        self.app._save_commits()  # Nueva línea
-
-        # === NUEVO: Asociar commit a la rama actual y guardar branches.json ===
+        self.app._save_commits()
         current_branch = self.app.branch_tree.current_branch
         if current_branch:
             current_branch.commit = new_commit
             self.app.branch_tree.save(self.app.repo_path)
-
         print(f"Commit creado: {new_commit.id}")
         print(f"{len(staged_files)} archivos incluidos")
 
@@ -452,6 +492,8 @@ class GitPR(Command):
 
     def create(self, args):
         self._check_repo_initialized()
+        if not self.app._has_permission("push"):
+            raise Exception("Permiso denegado: No puedes crear pull requests.")
         if len(args) != 4:
             raise Exception("Uso: pr create <rama_origen> <rama_destino>")
         source = args[2]
@@ -459,7 +501,7 @@ class GitPR(Command):
         pr_id = len(self.app.pr_queue) + 1
         new_pr = PullRequest(pr_id, source, target)
         new_pr.created_at = datetime.now()
-        new_pr.author = "usuario@example.com"
+        new_pr.author = self.app.user_email
         new_pr.files = self.app.staging.get_staged_files()  # Capturar archivos en staging
         self.app.pr_queue.enqueue(new_pr)
         self.app._save_pull_requests()
@@ -485,6 +527,8 @@ class GitPR(Command):
 
     def approve(self, args):
         self._check_repo_initialized()
+        if not self.app._has_permission("merge"):
+            raise Exception("Permiso denegado: No puedes aprobar (merge) pull requests.")
         if len(args) != 3:
             raise Exception("Uso: pr approve <id_pr>")
         pr_id = int(args[2])
@@ -519,12 +563,14 @@ class GitPR(Command):
         
     def reject(self, args):
         self._check_repo_initialized()
+        if not self.app._has_permission("merge"):
+            raise Exception("Permiso denegado: No puedes rechazar pull requests.")
         if len(args) != 3:
-            raise Exception("Uso: pr reject <id_pr>")  # Error corregido
+            raise Exception("Uso: pr reject <id_pr>")
         pr_id = int(args[2])
         pr = self.app.pr_queue.find_pr_by_id(pr_id)
         if pr:
-            pr.status = "rejected"  # Corregir de 'approved' a 'rejected'
+            pr.status = "rejected"
             self.app._save_pull_requests()
             print(f"PR #{pr_id} rechazado")
         else:
@@ -532,6 +578,8 @@ class GitPR(Command):
         
     def cancel(self, args):
         self._check_repo_initialized()
+        if not self.app._has_permission("merge"):
+            raise Exception("Permiso denegado: No puedes cancelar pull requests.")
         if len(args) != 3:
             raise Exception("Uso: pr cancel <id_pr>")
         pr_id = int(args[2])
@@ -551,6 +599,8 @@ class GitPR(Command):
 
     def clear(self, args):
         self._check_repo_initialized()
+        if not self.app._has_permission("merge"):
+            raise Exception("Permiso denegado: No puedes limpiar la cola de PRs.")
         self.app.pr_queue.clear()
         self.app._save_pull_requests()
         print("Todos los PRs pendientes eliminados")
@@ -644,6 +694,23 @@ class GitRole(Command):
         for u in users:
             print(f"Email: {u['email']}, Rol: {u['role']}, Permisos: {u['permisos']}")
 
+class GitConfig(Command):
+    def __init__(self, app):
+        self.app = app
+
+    def execute(self, args):
+        if len(args) != 3:
+            print("Uso: config user.name <nombre> | config user.email <email>")
+            return
+        if args[1] == "user.name":
+            self.app.user_name = args[2]
+            print(f"Nombre de usuario cambiado a: {args[2]}")
+        elif args[1] == "user.email":
+            self.app.user_email = args[2]
+            print(f"Email de usuario cambiado a: {args[2]}")
+        else:
+            print("Opción no reconocida. Usa user.name o user.email")
+
 class GitHelp(Command):
     def execute(self, args):
         print("Comandos:")
@@ -679,10 +746,21 @@ class GitBranch(Command):
         if args[1] == "--list":
             self._list_branches()
         elif args[1] == "-d":
+            if not self.app._has_permission("branch"):
+                raise Exception("Permiso denegado: No puedes eliminar ramas.")
             self._delete_branch(args[2])
         elif args[1] == "merge":
-            self._merge_branches(args[2], args[3])
+            if not self.app._has_permission("merge"):
+                raise Exception("Permiso denegado: No puedes hacer merge de ramas.")
+            if self.app.branch_tree.merge(args[2], args[3], repo_path=self.app.repo_path, commits_list=self.app.commits):
+                print(f"Merge exitoso de '{args[2]}' en '{args[3]}'")
+                self.app._save_commits()
+                self.app.branch_tree.save(self.app.repo_path)
+            else:
+                raise Exception("Error en el merge. ¿Ramas válidas?")
         else:
+            if not self.app._has_permission("branch"):
+                raise Exception("Permiso denegado: No puedes crear ramas.")
             self._create_branch(args[1])
     
     def _create_branch(self, branch_name):
@@ -732,11 +810,17 @@ class GitContributors(Command):
         if subcmd == "--list":
             self._list_contributors()
         elif subcmd == "add":
+            if not self.app._has_permission("push"):
+                raise Exception("Permiso denegado: No puedes agregar colaboradores.")
             self._add_contributor(args[2], args[3])
         elif subcmd == "remove":
+            if not self.app._has_permission("push"):
+                raise Exception("Permiso denegado: No puedes eliminar colaboradores.")
             self._remove_contributor(args[2])
         elif subcmd == "find":
             self._find_contributor(args[2])
+        elif subcmd == 'help':
+            self.__help()
         else:
             raise Exception("Subcomando no reconocido")
     
@@ -763,6 +847,13 @@ class GitContributors(Command):
             print(f"Nombre: {contributor.name} | Rol: {contributor.role}")
         else:
             print("Colaborador no encontrado")
+    
+    def __help(self):
+        print('add <name> <role>')
+        print('--list')
+        print('add <name> <role>')
+        print('remove <name>')
+        print('find <name>')
 
 if __name__ == "__main__":
     app = ConsoleApp()
