@@ -348,6 +348,13 @@ class GitCommit(Command):
                 self.app.git_objects.insert(file_hash)
         self.app.staging.clear()
         self.app._save_commits()  # Nueva línea
+
+        # === NUEVO: Asociar commit a la rama actual y guardar branches.json ===
+        current_branch = self.app.branch_tree.current_branch
+        if current_branch:
+            current_branch.commit = new_commit
+            self.app.branch_tree.save(self.app.repo_path)
+
         print(f"Commit creado: {new_commit.id}")
         print(f"{len(staged_files)} archivos incluidos")
 
@@ -383,6 +390,20 @@ class GitCheckout(Command):
         branch = self.app.branch_tree.find_branch_inorder(self.app.branch_tree.root, args[1])
         if branch:
             self.app.branch_tree.current_branch = branch
+            # Restaurar HEAD y staging desde el commit de la rama
+            if branch.commit:
+                # HEAD apunta al commit de la rama
+                # Buscar el nodo en la lista de commits
+                current_node = self.app.commits.head
+                while current_node:
+                    if current_node.data.id == branch.commit.id:
+                        self.app.current_commit = current_node
+                        break
+                    current_node = current_node.next
+                # Restaurar staging
+                self.app.staging.clear()
+                for filename in branch.commit.staged_files:
+                    self.app.staging.push(filename, estado='A')
             print(f"Cambiado a rama: {branch.name}")
             return
         
@@ -690,6 +711,11 @@ class GitBranch(Command):
             self.app.branch_tree.save(self.app.repo_path)
         else:
             raise Exception("Error en el merge. ¿Ramas válidas?")
+        
+    def help(self):
+        print('--list')
+        print('-d <name>')
+        print('merge <source> <target>')
         
 class GitContributors(Command):
     def __init__(self, app):
