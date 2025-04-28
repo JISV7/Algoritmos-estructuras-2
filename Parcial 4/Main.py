@@ -46,13 +46,13 @@ class ConsoleApp:
     def _init_default_roles(self):
         """Inicializa los roles predeterminados con sus permisos"""
         # Admin: Acceso total
-        self.roles.roles.add_role("Admin", ["push", "pull", "merge", "branch"])
+        self.roles.roles.add_role("admin", ["push", "pull", "merge", "branch"])
         # Maintainer: push y merge en cualquier rama
-        self.roles.roles.add_role("Maintainer", ["push", "pull", "merge"])
+        self.roles.roles.add_role("main", ["push", "pull", "merge"])
         # Developer: push en ramas específicas (solo push y pull)
-        self.roles.roles.add_role("Developer", ["push", "pull"])
+        self.roles.roles.add_role("dev", ["push", "pull"])
         # Guest: solo pull
-        self.roles.roles.add_role("Guest", ["pull"])
+        self.roles.roles.add_role("guest", ["pull"])
         # Root: acceso total (por si acaso)
         self.roles.insert("root@gmail.com", "Admin", ["push", "pull", "merge", "branch", "admin"])
 
